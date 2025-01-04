@@ -1,0 +1,70 @@
+version: '3'
+
+name: mlops_mlflow_lzd
+services:
+  minio_mlops_lzd:
+    image: quay.io/minio/minio:latest
+    container_name: mlops_minio_lzd
+    volumes:
+      - ./minio/data:/home/data
+      - ./minio/certs:/home/certs
+    ports:
+      - ${MINIO_PORT}:9000
+      - ${MINIO_CONSOLE_PORT}:443
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_ADDRESS=${MINIO_ADDRESS}
+      - MINIO_CONSOLE_ADDRESS=${MINIO_CONSOLE_ADDRESS}
+      - MINIO_PORT=${MINIO_PORT}
+      - MINIO_STORAGE_USE_HTTPS=${MINIO_STORAGE_USE_HTTPS}
+    command: server ${MINIO_DATA_DIR} --certs-dir ${MINIO_CERT_DIR}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://minio_mlops:${MINIO_PORT}/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+  
+  postgres_mlops_lzd:
+    image: postgres:latest
+    container_name: mlops_postgres_lzd
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - ${POSTGRES_PORT}:5432
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-p", "${POSTGRES_PORT}", "-U", "${POSTGRES_USER}", "${POSTGRES_DATABASE}"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  mlflow_mlops_lzd:
+      restart: unless-stopped
+      build: ./mlflow
+      image: mlops_mlflow
+      container_name: mlops_mlflow_lzd
+      depends_on:
+        - postgres_mlops_lzd
+        - minio_mlops_lzd
+      ports:
+        - ${MLFLOW_PORT}:5000
+      environment:
+        - AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
+        - AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+        - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL}
+        - MLFLOW_S3_IGNORE_TLS=${MLFLOW_S3_IGNORE_TLS}
+      command: >
+        mlflow server
+        --host 0.0.0.0
+        --serve-artifacts
+        --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_mlops_lzd:5432/${POSTGRES_MLFLOW_DATABASE}
+        --artifacts-destination s3://${MLFLOW_BUCKET_NAME}
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://mlflow_mlops_lzd:${MLFLOW_PORT}/"]
+        interval: 30s
+        timeout: 10s
+        retries: 3

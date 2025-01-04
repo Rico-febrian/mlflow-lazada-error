@@ -1,0 +1,8 @@
+minio==7.2.11
+scikit-learn==1.5.2
+joblib==1.4.2
+pandas==2.2.3
+python-dotenv==1.0.1
+seaborn==0.13.2
+psycopg2-binary==2.9.10
+mlflow==2.18.0
